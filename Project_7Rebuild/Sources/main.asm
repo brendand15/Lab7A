@@ -43,6 +43,7 @@ MAXPERCENT	EQU		$3333
 init_perc	  EQU		$0CCD	; 3,277 ticks, or 5% pulse width
 
 init_max	  EQU		$3333	; 13,107 ticks, or 20% pulse width
+count_max   EQU   $FFF0
 
 five_sec    EQU  	$0262   ; 610 pulses = 5 seconds with 8MHz clock
 ten_sec		  EQU		$04C4	; 1220 pulses
@@ -115,12 +116,16 @@ CLEARFLG	LDAA	TFLG1				;Read flag first
 ;Subroutine INC_OF
 ;increment overflow counter
 ;-----------------------------------v			
-INC_OF		LDX		o_count				;increment number of overflows by 1
+INC_OF		  LDX		o_count				;increment number of overflows by 1
 			    INX
+			    LDD   o_count
+			    SUBD  count_max
+			    BEQ   RES_COUNT
 			    STX   o_count
 			    
-			
-		  	  BRA	SQ_WAVE
+		      BRA	SQ_WAVE
+RES_COUNT CLR o_count
+          BRA SQ_WAVE
 
 
 ;-----------------------------------
