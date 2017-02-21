@@ -8819,7 +8819,7 @@ dec_speed	LDD		pulse_width			;loads previous pulse width
 ;-----------------------------------
 ;Subroutine to maintain top speed (%20 duty cycle) for 5 seconds
 ;-----------------------------------
-top_speed 	LDD 	init_max				;set pulse_width to init_max(20%)
+top_speed 	LDD 	#init_max				;set pulse_width to init_max(20%)
       			STD 	pulse_width				;save pulse_width value
       			BRA		INC_OF
 

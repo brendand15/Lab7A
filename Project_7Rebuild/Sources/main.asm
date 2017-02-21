@@ -128,7 +128,7 @@ INC_OF		LDX		o_count				;increment number of overflows by 1
 ;-----------------------------------
 SQ_WAVE 	BRCLR	TFLG1,$04,SQ_WAVE 	;Poll for C2F Flag
 			    LDD		TC2Hi				;load value from TC2 reg
-    			ADDD	#pulse_width		;add hex value to high count
+    			ADDD	pulse_width		;add hex value to high count
     			STD 	TC2Hi				;setup next transition time
     			BSR		CLEARFLG			;generate repetitive signal
     			RTS
