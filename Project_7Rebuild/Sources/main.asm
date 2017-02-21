@@ -133,6 +133,7 @@ RES_COUNT CLR o_count
 ;-----------------------------------
 SQ_WAVE 	BRCLR	TFLG1,$04,SQ_WAVE 	;Poll for C2F Flag
 			    LDD		TC2Hi				;load value from TC2 reg
+			    ADDD  pulse_width
     			STD 	TC2Hi				;setup next transition time
     			BSR		CLEARFLG			;generate repetitive signal
     			RTS
