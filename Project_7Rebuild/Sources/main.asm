@@ -34,10 +34,15 @@ o_count		  FDB		$0000	; Number of overflows
 Counter     DS.W 1
 FiboRes     DS.W 1
 
+
+OC7M_IN     EQU   $0C   ; Force channels 2 and 3 high when channel 7 resets
+OC7D_IN     EQU   $0C   ; Same as above, needed for same reason.
 TSCR2_IN	  EQU		$02		; disable TOI, prescale = 4
-TCTL2_IN	  EQU		$10		; initialize OC2 toggle
-TIOS_IN		  EQU		$0C		; select Ch 2 and 3 for OC, everything else is set for input compare
+TCTL2_IN	  EQU		$A0		; Tell ch2 and ch3 to go to 0 at end of pulse length
+TCTL1_IN    EQU   $40   ; upon compare, channel 7 will be set high (which will set ch2 and 3 high)
+TIOS_IN		  EQU		$8C		; select Ch 7,2 and 3 for OC, everything else is set for input compare
 TSCR_IN 	  EQU		$80		; enable timer, normal flag CLR.
+TFLG1_Chk   EQU   $8C   ; check if ch7 matches free running counter
 PERCENT		  EQU		$80
 MAXPERCENT	EQU		$3333
 init_perc	  EQU		$0CCD	; 3,277 ticks, or 5% pulse width
@@ -45,9 +50,9 @@ init_perc	  EQU		$0CCD	; 3,277 ticks, or 5% pulse width
 init_max	  EQU		$3333	; 13,107 ticks, or 20% pulse width
 count_max   EQU   $FFF0
 
-five_sec    EQU  	$0262   ; 610 pulses = 5 seconds with 8MHz clock
+five_sec    EQU  	$0262 ; 610 pulses = 5 seconds with 8MHz clock 
 ten_sec		  EQU		$04C4	; 1220 pulses
-fift_sec	  EQU		$0727
+fift_sec	  EQU		$0727 ;
 slope		    EQU		$10		; Duty Cycle profile slope (15% in 5 sec = 3% per sec OR [ (13,107 ticks - 3277 ticks)/5 sec] * [ 5sec /610 pulses ] = 16 ticks per pulse, 16 hex = 10
 
 
@@ -97,6 +102,8 @@ DONE	  BSR		SQ_WAVE		; square wave gen subr
 TIMERINIT_OC2	CLR		TIE 				;disable interrupts in Timer Interrupt Enable Register
 				MOVB	#TSCR2_IN,TSCR2 	;Timer System Control Register 2
 				MOVB	#TCTL2_IN,TCTL2 	;OC2 toggle on compare
+        MOVB  #OC7M_IN,OC7M
+        MOVB  #OC7D_IN,OC7D
 				MOVB	#TIOS_IN,TIOS 		;select ch2 for OC
 				MOVW	#pulse_width,TC2Hi		;load TC2 with initial comp
 				MOVB	#TSCR_IN,TSCR1		;enable timer, std flag clr4,
@@ -107,7 +114,7 @@ TIMERINIT_OC2	CLR		TIE 				;disable interrupts in Timer Interrupt Enable Registe
 ;Clear C@F flag by reading TFLG1 when C2F set and then writing 1 to C2F
 ;----------------------------------
 CLEARFLG	LDAA	TFLG1				;Read flag first
-			    ORAA	#$04				;write 1 to flag for clearing
+			    ORAA	#$80	;write 1 to flag for clearing
 			    STAA	TFLG1
 			    
 			    BRA SPEED_CTRL
@@ -116,7 +123,7 @@ CLEARFLG	LDAA	TFLG1				;Read flag first
 ;Subroutine INC_OF
 ;increment overflow counter
 ;-----------------------------------v			
-INC_OF		  LDX		o_count				;increment number of overflows by 1
+INC_OF		LDX		o_count				;increment number of overflows by 1
 			    INX
 			    LDD   o_count
 			    SUBD  count_max
@@ -131,9 +138,10 @@ RES_COUNT CLR o_count
 ;-----------------------------------
 ;Subroutine SQWAVE
 ;-----------------------------------
-SQ_WAVE 	BRCLR	TFLG1,$04,SQ_WAVE 	;Poll for C2F Flag
-			    LDD		TC2Hi				;load value from TC2 reg
-    			STD 	TC2Hi				;setup next transition time
+SQ_WAVE 	BRCLR	TFLG1,$80,SQ_WAVE 	;Poll for Ch7 Flag
+    			LDD	  pulse_width		;add hex value to high count
+    			STD 	TC2Hi				;setup next transition time for ch 2
+    			STD   TC3Hi       ;setup next transition time for ch 3
     			BSR		CLEARFLG			;generate repetitive signal
     			RTS
 
@@ -161,17 +169,29 @@ dec_speed	LDD		pulse_width			;loads previous pulse width
 top_speed 	LDD 	#init_max				;set pulse_width to init_max(20%)
       			STD 	pulse_width				;save pulse_width value
       			BRA		INC_OF
+      			
+      			
+;-----------------------------------
+;Subroutine to maintain min speed (%5 duty cycle) for a long time
+;-----------------------------------
+min_speed 	LDD 	#init_perc				;set pulse_width to init_min(5%)
+      			STD 	pulse_width				;save pulse_width value
+      			BRA		INC_OF
 
 ;-----------------------------------
 ;Subroutine SPEED_CTRL
 ;-----------------------------------
 SPEED_CTRL  LDAA	TFLG1				;Read flag first
-			      ORAA	#$04				;write 1 to flag for clearing
+			      ORAA	#$0C				;write 1 to flag for clearing
 			      STAA	TFLG1
 			
 		    	  LDD		o_count
 			      SUBD	#five_sec
 			      BLT		inc_speed			;branch if <5s
+			      
+			      LDD		o_count
+			      SUBD	#fift_sec
+			      BGT		min_speed			;branch if >15s
 			
 			      LDD		o_count
 			      SUBD	#ten_sec
