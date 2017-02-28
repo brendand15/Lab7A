@@ -29,6 +29,7 @@ ROMStart    EQU  $4000  ; absolute address to place my code/constant data
  
 pulse_width	FDB		init_perc  ; Creates the pulse_width variable for use with pwm 
 o_count		  FDB		$0000	; Number of overflows
+sec_count   FDB   $0000 ; Contains seconds that have passed.
  
  ; Insert here your data definition.
 Counter     DS.W 1
@@ -53,11 +54,24 @@ init_perc	  EQU		$0CCD	; 3,277 ticks, or 5% pulse width
 init_max	  EQU		$3333	; 13,107 ticks, or 20% pulse width
 count_max   EQU   $FFF0
 
+one_sec     EQU   $007A ; 122 pulses = 1 seconds
 five_sec    EQU  	$0262 ; 610 pulses = 5 seconds with 8MHz clock 
 ten_sec		  EQU		$04C4	; 1220 pulses
 fift_sec	  EQU		$0727 ;
+FIFT        EQU   $F
+
 slope		    EQU		$10		; Duty Cycle profile slope (15% in 5 sec = 3% per sec OR [ (13,107 ticks - 3277 ticks)/5 sec] * [ 5sec /610 pulses ] = 16 ticks per pulse, 16 hex = 10
 
+;LCD Variables
+LCD_DATA	  EQU PORTK		
+LCD_CTRL	  EQU PORTK		
+RS	        EQU mPORTK_BIT0	
+EN	        EQU mPORTK_BIT1
+;----------------------USE $1050-$2FFF for Scratch Pad 
+R1          EQU     $1051
+R2          EQU     $1052
+R3          EQU     $1053
+TEMP        EQU     $1200
 
 
 ; code section
@@ -101,10 +115,23 @@ mainLoop:
     		STD 	TC2Hi				;setup next transition time for ch 2
     		STD   TC3Hi       ;setup next transition time for ch 3
 			  MOVB  #TIE_IN, TIE  ;Turn on interrupts for ch0 and ch1
-			  
-			  ;BSR  LCD_Subroutine_Here
+
+; Loop to see check when to print. (Will call print command once per second)
+loop_s  LDD   o_count
+			  LDX   #one_sec
+			  IDIV          ; o_count / (122 pulses) = # of seconds
+			  CPX   sec_count ; result - counted seconds
+			  BEQ   loop_s    ; IF seconds = 0 or result == counted seconds, THEN continue looping/polling
+			  STX   sec_count ; sec_count = result
+			  BRA   PrLCD     ; Print current count
+a_print LDD   sec_count ;
+			  CPD   FIFT      ; if sec_count == 15 (exit condition)
+			  BEQ   DONE
+			  BRA   loop_s 
 			  
 DONE	  BRA		DONE		; Branch to self
+
+
 
 ;-------------------------------------
 ;Subroutine TIMERINIT: Initialize timer for OC2
@@ -120,6 +147,280 @@ TIMERINIT_OC2	CLR		TIE 				;disable interrupts in Timer Interrupt Enable Registe
 				MOVB	#TSCR_IN,TSCR1		;enable timer, std flag clr4,
 				RTS							;return from subroutine
 
+;-------------------------------------
+;Subroutine PrLCD Prints # of pulses to LCD Screen
+;-------------------------------------
+
+PrLCD LDAA  #$FF
+		  STAA  DDRK		
+		  LDAA  #$33
+		  JSR	  COMWRT4    	
+  		JSR   DELAY
+  		LDAA  #$32
+		  JSR	  COMWRT4		
+ 		  JSR   DELAY
+		  LDAA	#$28	
+		  JSR	  COMWRT4    	
+		  JSR	  DELAY   		
+		  LDAA	#$0E     	
+		  JSR	  COMWRT4		
+		  JSR   DELAY
+		  LDAA	#$01     	
+		  JSR	  COMWRT4    	
+		  JSR   DELAY
+		  LDAA	#$06     	
+		  JSR	  COMWRT4    	
+		  JSR   DELAY
+		  LDAA	#$80     	
+		  JSR	  COMWRT4    	
+		  JSR   DELAY
+		 
+		  LDAA  #'O'     	
+		  JSR	  DATWRT4 
+		  JSR   DELAY
+		  LDAA  #':'     	
+		  JSR	  DATWRT4 
+		  JSR   DELAY
+		  LDAA	#' '     	
+		  JSR	  DATWRT4    	
+		  JSR   DELAY
+		  
+		  
+		  ldd   o_count
+		  jsr   parse_hex
+		  
+o_prt 
+	    	    
+		  LDAA	#' '     	
+		  JSR	  DATWRT4    	
+		  JSR   DELAY
+		  LDAA  #'T'     	
+		  JSR	  DATWRT4 
+		  JSR   DELAY
+		  LDAA  #':'     	
+		  JSR	  DATWRT4 
+		  JSR   DELAY
+		  LDAA	#' '     	
+		  JSR	  DATWRT4    	
+		  JSR   DELAY
+		  
+		  
+		  
+;		  ldd   #$03db        ;987
+;		  ldx   #$64          ;100 3 dig max
+;		  jsr   hex_con
+;		  
+;t_prt LDAA	#'s'     	
+;		  JSR	  DATWRT4    	
+;		  JSR   DELAY
+		   	
+AGAIN: JSR  a_print	 ; AGAIN ; Former Again end loop. Now returns to check seconds     	
+;----------------------------
+COMWRT4:               		
+		  STAA	TEMP		
+		  ANDA  #$F0
+		  LSRA
+		  LSRA
+		  STAA  LCD_DATA
+		  BCLR  LCD_CTRL,RS 	
+		  BSET  LCD_CTRL,EN 	
+		  NOP
+		  NOP
+		  NOP				
+		  BCLR  LCD_CTRL,EN 	
+		  LDAA  TEMP
+		  ANDA  #$0F
+    	LSLA
+    	LSLA
+  		STAA  LCD_DATA
+		  BCLR  LCD_CTRL,RS 	
+		  BSET  LCD_CTRL,EN 	
+		  NOP
+		  NOP
+		  NOP				
+		  BCLR  LCD_CTRL,EN 	
+		  RTS
+;--------------		  
+DATWRT4:                   	
+		  STAA	 TEMP		
+		  ANDA   #$F0
+		  LSRA
+		  LSRA
+		  STAA   LCD_DATA
+		  BSET   LCD_CTRL,RS 	
+		  BSET   LCD_CTRL,EN 	
+		  NOP
+		  NOP
+		  NOP				
+		  BCLR   LCD_CTRL,EN 	
+		  LDAA   TEMP
+		  ANDA   #$0F
+    	LSLA
+      LSLA
+  		STAA   LCD_DATA
+  		BSET   LCD_CTRL,RS
+		  BSET   LCD_CTRL,EN 	
+		  NOP
+		  NOP
+		  NOP				
+		  BCLR   LCD_CTRL,EN 	
+		  RTS
+;-------------------		  
+
+DELAY
+
+        PSHA		;Save Reg A on Stack
+        LDAA    #1		  
+        STAA    R3		
+;-- 1 msec delay. The Serial Monitor works at speed of 48MHz with XTAL=8MHz on Dragon12+ board
+;Freq. for Instruction Clock Cycle is 24MHz (1/2 of 48Mhz). 
+;(1/24MHz) x 10 Clk x240x100=1 msec. Overheads are excluded in this calculation.         
+L3      LDAA    #100
+        STAA    R2
+L2      LDAA    #240
+        STAA    R1
+L1      NOP         ;1 Intruction Clk Cycle
+        NOP         ;1
+        NOP         ;1
+        DEC     R1  ;4
+        BNE     L1  ;3
+        DEC     R2  ;Total Instr.Clk=10
+        BNE     L2
+        DEC     R3
+        BNE     L3
+;--------------        
+        PULA			;Restore Reg A
+        RTS
+;-------------------
+
+
+;Prints out count, one digit at a time
+parse_hex:
+        ldx     #$2710       ;10,000 initial divisor value     
+        
+hex_con 
+               
+        pshx 
+        IDIV           ;d/x
+        leay     $0,x  ;put digit val in y for dig
+        
+        
+        pulx           ;grab prev divisior
+        pshd           ;save remainder
+        
+        
+        xgdx           ;put x in d
+        
+        ldx     #$0a   ;10
+        idiv           ;x%=10 next digit
+        puld           ;remainder is in d
+        
+        bra     dig    ;exit is in dig
+        
+        
+        
+dig:    
+        xgdy           ;put y(digit val) in d and the remainder in y
+
+        subd  #$00
+        bne   num1
+        
+        LDAA  #'0'
+	
+		    JSR	  DATWRT4    	
+		    JSR   DELAY
+		    XGDY           ;put remainder back in d from y
+		    jsr   hex_con
+        
+num1    subd  #$01
+        bne   num2
+        
+        LDAA  #'1'
+	
+		    JSR	  DATWRT4    	
+		    JSR   DELAY
+		    XGDY           ;put remainder back in d from y
+		    jsr   hex_con
+		    
+num2    subd  #$01
+        bne   num3
+        
+        LDAA  #'2'
+	
+		    JSR	  DATWRT4    	
+		    JSR   DELAY
+		    XGDY           ;put remainder back in d from y
+		    jsr   hex_con
+		    
+num3    subd  #$01
+        bne   num4
+        
+        LDAA  #'3'
+	
+		    JSR	  DATWRT4    	
+		    JSR   DELAY
+		    XGDY           ;put remainder back in d from y
+		    jsr   hex_con
+		    
+num4    subd  #$01
+        bne   num5
+        
+        LDAA  #'4'
+	
+		    JSR	  DATWRT4    	
+		    JSR   DELAY
+		    XGDY           ;put remainder back in d from y
+		    jsr   hex_con
+		    
+num5    subd  #$01
+        bne   num6
+        
+        LDAA  #'5'
+	
+		    JSR	  DATWRT4    	
+		    JSR   DELAY
+		    XGDY           ;put remainder back in d from y
+		    jsr   hex_con
+		    
+num6    subd  #$01
+        bne   num7
+        
+        LDAA  #'6'
+	
+		    JSR	  DATWRT4    	
+		    JSR   DELAY
+		    XGDY           ;put remainder back in d from y
+		    jsr   hex_con
+		    
+num7    subd  #$01
+        bne   num8
+        
+        LDAA  #'7'
+	
+		    JSR	  DATWRT4    	
+		    JSR   DELAY
+		    XGDY           ;put remainder back in d from y
+		    jsr   hex_con
+		    
+num8    subd  #$01
+        bne   num9
+        
+        LDAA  #'8'
+	
+		    JSR	  DATWRT4    	
+		    JSR   DELAY
+		    XGDY           ;put remainder back in d from y
+		    jsr   hex_con
+		    
+num9    subd  #$01
+        JSR   o_prt
+        
+        LDAA  #'9'
+	
+		    JSR	  DATWRT4    	
+		    JSR   DELAY
+		    XGDY           ;put remainder back in d from y
+		    jsr   hex_con
 
 ;-----------------------------------
 ;Ch0 Interrupt code
