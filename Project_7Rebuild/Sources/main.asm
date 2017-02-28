@@ -1,3 +1,13 @@
+; LAB 7A
+; Brendan Deffense and Francois Gerday
+;
+; In this project we created a PWM signal using the timing system of the microcontroller
+;   Using the pins on Port T, we configured ch 0 an ch 1 for input compare.
+;   We then configured Ch 2, 3, and 7 for output compare.
+;   Using Ch7 output compare, we set channels 2 and 3 high every time the freerunning counter
+;   reset to $0000. Channels 2 and 3 were given a set time to stay High, before dropping the signal to low.
+;
+;
 ;*****************************************************************
 ;* This stationery serves as the framework for a                 *
 ;* user application (single file, absolute assembly application) *
@@ -27,7 +37,7 @@ ROMStart    EQU  $4000  ; absolute address to place my code/constant data
             ORG RAMStart
  endif
  
-pulse_width	FDB		init_perc  ; Creates the pulse_width variable for use with pwm 
+pulse_width	FDB		INIT_PERC  ; Creates the pulse_width variable for use with pwm 
 o_count		  FDB		$0000	; Number of overflows
 sec_count   FDB   $0000 ; Contains seconds that have passed.
 select      FDB   $00
@@ -45,23 +55,25 @@ TCTL1_IN    EQU   $40   ; upon compare, channel 7 will be set high (which will s
 TCTL4_IN    EQU   $05   ; Mask for setting ch0 and ch1 to look for any rising edge.
 TIOS_IN		  EQU		$8C		; select Ch 7,2 and 3 for OC, everything else is set for input compare
 TSCR_IN 	  EQU		$80		; enable timer, normal flag CLR.
-TFLG1_Chk   EQU   $8F   ; check if ch7 matches free running counter
-TFLG1_Clr   EQU   $8F   ; Clear interrupts set for channels 0-3 and ch 7
+TFLG1_CHK   EQU   $8F   ; check if ch7 matches free running counter
+TFLG1_CLRA  EQU   $8F   ; Clear interrupts set for channels 0-3 and ch 7
+TFLG1_CLR1  EQU   $02   ; Clear interrupts set for ch1 only
+TFLG1_CLR0  EQU   $01   ; Clear interrupt set for ch0 only
 TIE_IN      EQU   $03   ; Mask to turn on interrupts for channels 0 and 1.
 PERCENT		  EQU		$80
 MAXPERCENT	EQU		$3333
-init_perc	  EQU		$0CCD	; 3,277 ticks, or 5% pulse width
+INIT_PERC	  EQU		$0CCD	; 3,277 ticks, or 5% pulse width
 
-init_max	  EQU		$3333	; 13,107 ticks, or 20% pulse width
-count_max   EQU   $FFF0
+INIT_MAX	  EQU		$3333	; 13,107 ticks, or 20% pulse width
 
-one_sec     EQU   $007A ; 122 pulses = 1 seconds
-five_sec    EQU  	$0262 ; 610 pulses = 5 seconds with 8MHz clock 
-ten_sec		  EQU		$04C4	; 1220 pulses
-fift_sec	  EQU		$0727 ;
+ONE_SEC     EQU   $007A ; 122 pulses = 1 seconds
+FIVE_SEC    EQU  	$0262 ; 610 pulses = 5 seconds with 8MHz clock 
+TEN_SEC		  EQU		$04C4	; 1220 pulses
+FIFT_SEC	  EQU		$0727 ;
 FIFT        EQU   $F
+ZERO        EQU   $00
 
-slope		    EQU		$10		; Duty Cycle profile slope (15% in 5 sec = 3% per sec OR [ (13,107 ticks - 3277 ticks)/5 sec] * [ 5sec /610 pulses ] = 16 ticks per pulse, 16 hex = 10
+SLOPE		    EQU		$10		; Duty Cycle profile slope (15% in 5 sec = 3% per sec OR [ (13,107 ticks - 3277 ticks)/5 sec] * [ 5sec /610 pulses ] = 16 ticks per pulse, 16 hex = 10
 
 ;LCD Variables
 LCD_DATA	  EQU PORTK		
@@ -105,11 +117,16 @@ mainLoop:
 ;Lab7A.asm
 
 ;---------------------------------
-;MAIN PROGRAM: Lab7A, generates a square wave
+;MAIN PROGRAM: Lab7A, Generates a PWM signal on channels 2 and 3.
+;
+; Requirements: Ch 0 needs to be connected to ch 2 or ch3's output in some way.
 ;
 ;
 ;---------------------------------
-
+        LDD   #ZERO       ;Reset counters (needed when microcontroller is reset)
+        STD   o_count
+        STD   sec_count
+        
 			  BSR		TIMERINIT_OC2	; Timer initialization subr
 			  
 			  LDD	  pulse_width		;add hex value to high count, This code will create the first pulse duty cycle
@@ -119,7 +136,7 @@ mainLoop:
 
 ; Loop to see check when to print. (Will call print command once per second)
 loop_s  LDD   o_count
-			  LDX   #one_sec
+			  LDX   #ONE_SEC
 			  IDIV          ; o_count / (122 pulses) = # of seconds
 			  CPX   sec_count ; result - counted seconds
 			  BEQ   loop_s    ; IF seconds = 0 or result == counted seconds, THEN continue looping/polling
@@ -135,21 +152,25 @@ DONE	  BRA		DONE		; Branch to self
 
 
 ;-------------------------------------
-;Subroutine TIMERINIT: Initialize timer for OC2
+; Subroutine TIMERINIT: Initialize timer for OC2
+;   Initializes all the settings for ch 0-3 and ch7 along Port T
+;
 ;-------------------------------------
-TIMERINIT_OC2	CLR		TIE 				;disable interrupts in Timer Interrupt Enable Register
-				MOVB	#TSCR2_IN,TSCR2 	;Timer System Control Register 2
-				MOVB	#TCTL2_IN,TCTL2 	;OC2 toggle on compare
-				MOVB  #TCTL4_IN,TCTL4   ;Set ch0 and ch1 interrupts to activate on any rising edge.
-        MOVB  #OC7M_IN,OC7M
-        MOVB  #OC7D_IN,OC7D
-				MOVB	#TIOS_IN,TIOS 		;select ch2 for OC
-				MOVW	#pulse_width,TC2Hi		;load TC2 with initial comp
-				MOVB	#TSCR_IN,TSCR1		;enable timer, std flag clr4,
-				RTS							;return from subroutine
+TIMERINIT_OC2	CLR		TIE 				  ; disable interrupts in Timer Interrupt Enable Register
+				MOVB	#TSCR2_IN,TSCR2 	  ; Timer System Control Register 2
+				MOVB	#TCTL2_IN,TCTL2 	  ; OC2 toggle on compare
+				MOVB  #TCTL4_IN,TCTL4     ; Set ch0 and ch1 interrupts to activate on any rising edge.
+        MOVB  #OC7M_IN,OC7M       ; The mask here forces channels 2 and 3 high whenever ch. 7 is set high
+        MOVB  #OC7D_IN,OC7D       ; Also needed to force ch 2 and 3 high.
+				MOVB	#TIOS_IN,TIOS 		  ; select ch2 for OC
+				MOVW	#pulse_width,TC2Hi  ; load TC2 with initial comp
+				MOVB	#TSCR_IN,TSCR1		  ; enable timer, std flag clr4,
+				RTS							          ; return from subroutine
 
 ;-------------------------------------
-;Subroutine PrLCD Prints # of pulses to LCD Screen
+; Subroutine PrLCD Prints # of pulses to LCD Screen
+; Calling this subroutine prints the current time in seconds as well as
+; the current clock ticks/timer overflows since the beginning of the program
 ;-------------------------------------
 
 PrLCD 
@@ -218,7 +239,7 @@ o_prt3
 		  JSR	  DATWRT4    	
 		  JSR   DELAY
 		   	
-AGAIN: JSR  a_print	 ; AGAIN ; Former Again end loop. Now returns to check seconds     	
+AGAIN: JSR  a_print	; Returns to main    	
 ;----------------------------
 COMWRT4:               		
 		  STAA	TEMP		
@@ -451,11 +472,12 @@ br5     JSR   o_prt5
 
 ;------------------------h-----------
 ;Ch0 Interrupt code
+;   This code will execute anytime a rising edge is detected in channel 0
 ;-----------------------------------
 rti_intCh0: 
-        	LDAA	TFLG1				;Read flag first
-    			ORAA	#TFLG1_Clr	;write 1 to flag for clearing ch 0-3 and ch 7
-    			STAA	TFLG1   		
+        	LDAA	TFLG1				; Read flag first
+    			ORAA	#TFLG1_CLR0	; write 1 to flag for clearing ch 0 interrupt flag
+    			STAA	TFLG1   		; 
     			BRA SPEED_CTRL
           
 
@@ -474,7 +496,7 @@ INC_OF		LDX		o_count				;increment number of overflows by 1
     ;     min + (overflow * slope)
     ;-----------------------------------
 inc_speed	LDD		pulse_width			;loads previous pulse width
-        	ADDD	#slope					;increment pulse_width by the slope
+        	ADDD	#SLOPE					;increment pulse_width by the slope
         	STD		pulse_width				;save our new pulse_width value
         	BRA		INC_OF
 
@@ -483,14 +505,14 @@ inc_speed	LDD		pulse_width			;loads previous pulse width
     ;     20% dutycycle ticks - (overflow - 10sec) * slope
     ;-----------------------------------
 dec_speed	LDD		pulse_width			;loads previous pulse width
-        	SUBD	#slope					;decrement pulse_width by the slope
+        	SUBD	#SLOPE					;decrement pulse_width by the slope
         	STD		pulse_width				;save our new pulse_width value
         	BRA		INC_OF
 
     ;-----------------------------------
     ;Subroutine to maintain top speed (%20 duty cycle) for 5 seconds
     ;-----------------------------------
-top_speed LDD 	#init_max				;set pulse_width to init_max(20%)
+top_speed LDD 	#INIT_MAX				;set pulse_width to init_max(20%)
           STD 	pulse_width				;save pulse_width value
           BRA		INC_OF
           			
@@ -498,30 +520,35 @@ top_speed LDD 	#init_max				;set pulse_width to init_max(20%)
     ;-----------------------------------
     ;Subroutine to maintain min speed (%5 duty cycle) for a long time
     ;-----------------------------------
-min_speed LDD 	#init_perc				;set pulse_width to init_min(5%)
+min_speed LDD 	#INIT_PERC				;set pulse_width to init_min(5%)
           STD 	pulse_width				;save pulse_width value
           BRA		INC_OF
 
     ;-----------------------------------
     ;Subroutine SPEED_CTRL
+    ;  selects between increasing, decreasing, or maintaining the current duty cycle
+    ; 
+    ; Prior to this subroutine, we  calculated the number of ticks in 5, 10, and 15 second intervals
+    ; This subroutine compares the current tick counts to those intervals and selects the correct action. 
     ;-----------------------------------
 SPEED_CTRL  LDD		o_count
-    			  SUBD	#five_sec
+    			  SUBD	#FIVE_SEC
     			  BLT		inc_speed			;branch if <5s
     			      
     			  LDD		o_count
-    			  SUBD	#fift_sec
+    			  SUBD	#FIFT_SEC
     			  BGT		min_speed			;branch if >15s
     			
     			  LDD		o_count
-    			  SUBD	#ten_sec
+    			  SUBD	#TEN_SEC
     			  BGT		dec_speed			;branch if >10s
     			
     			  BRA top_speed
     	
+    	;----------------------------------
     	;Subroutunne EndIntr
     	; Call this subroutine to end the Interrupt.		  
-    			  
+      ;----------------------------------    			  
     			  
 EndIntr   LDD	  pulse_width		;add hex value to high count
           STD 	TC2Hi				;setup next transition time for ch 2
@@ -534,14 +561,17 @@ EndIntr   LDD	  pulse_width		;add hex value to high count
 ;------------------------------
 
 ;-----------------------------------
-;Ch0 Interrupt code
+;Ch1 Interrupt code
 ;-----------------------------------
-rti_intCh0: 
+rti_intCh1: 
         	LDAA	TFLG1				;Read flag first
-    			ORAA	#TFLG1_Clr	;write 1 to flag for clearing ch 1
+    			ORAA	#TFLG1_CLR1	;write 1 to flag for clearing ch 1
     			STAA	TFLG1   		
     			
-    			RTI       
+    			RTI
+;------------------------------
+;End of Ch1 interrupt code     
+;------------------------------    			       
 
 ;**************************************************************
 ;*                 Interrupt Vectors                          *
