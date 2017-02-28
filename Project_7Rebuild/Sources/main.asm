@@ -125,7 +125,7 @@ loop_s  LDD   o_count
 			  STX   sec_count ; sec_count = result
 			  BRA   PrLCD     ; Print current count
 a_print LDD   sec_count ;
-			  CPD   FIFT      ; if sec_count == 15 (exit condition)
+			  CPD   #FIFT      ; if sec_count == 15 (exit condition)
 			  BEQ   DONE
 			  BRA   loop_s 
 			  
@@ -504,7 +504,17 @@ EndIntr   LDD	  pulse_width		;add hex value to high count
             
 ;------------------------------      			
 ;End of Ch0 interrupt code     
-;------------------------------       
+;------------------------------
+
+;-----------------------------------
+;Ch0 Interrupt code
+;-----------------------------------
+rti_intCh0: 
+        	LDAA	TFLG1				;Read flag first
+    			ORAA	#TFLG1_Clr	;write 1 to flag for clearing ch 1
+    			STAA	TFLG1   		
+    			
+    			RTI       
 
 ;**************************************************************
 ;*                 Interrupt Vectors                          *
@@ -515,5 +525,8 @@ EndIntr   LDD	  pulse_width		;add hex value to high count
 
             ORG   Vtimch0
             DC.W  rti_intCh0
+            
+            ORG   Vtimch1
+            DC.W  rti_intCh1
 
             END
