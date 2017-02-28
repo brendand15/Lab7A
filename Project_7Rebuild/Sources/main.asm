@@ -30,6 +30,7 @@ ROMStart    EQU  $4000  ; absolute address to place my code/constant data
 pulse_width	FDB		init_perc  ; Creates the pulse_width variable for use with pwm 
 o_count		  FDB		$0000	; Number of overflows
 sec_count   FDB   $0000 ; Contains seconds that have passed.
+select      FDB   $00
  
  ; Insert here your data definition.
 Counter     DS.W 1
@@ -151,7 +152,8 @@ TIMERINIT_OC2	CLR		TIE 				;disable interrupts in Timer Interrupt Enable Registe
 ;Subroutine PrLCD Prints # of pulses to LCD Screen
 ;-------------------------------------
 
-PrLCD LDAA  #$FF
+PrLCD 
+      LDAA  #$FF
 		  STAA  DDRK		
 		  LDAA  #$33
 		  JSR	  COMWRT4    	
@@ -187,9 +189,11 @@ PrLCD LDAA  #$FF
 		  
 		  
 		  ldd   o_count
-		  jsr   parse_hex
+		  jsr   parse_hex5
 		  
-o_prt 
+		  
+		  
+o_prt5 
 	    	    
 		  LDAA	#' '     	
 		  JSR	  DATWRT4    	
@@ -206,13 +210,13 @@ o_prt
 		  
 		  
 		  
-;		  ldd   #$03db        ;987
-;		  ldx   #$64          ;100 3 dig max
-;		  jsr   hex_con
-;		  
-;t_prt LDAA	#'s'     	
-;		  JSR	  DATWRT4    	
-;		  JSR   DELAY
+		  ldd   sec_count
+		  jsr   parse_hex3
+		  
+o_prt3 
+      LDAA	#'s'     	
+		  JSR	  DATWRT4    	
+		  JSR   DELAY
 		   	
 AGAIN: JSR  a_print	 ; AGAIN ; Former Again end loop. Now returns to check seconds     	
 ;----------------------------
@@ -295,9 +299,25 @@ L1      NOP         ;1 Intruction Clk Cycle
 
 
 ;Prints out count, one digit at a time
-parse_hex:
-        ldx     #$2710       ;10,000 initial divisor value     
+parse_hex5:
+        pshd
+        ldaa    #$FF
+        staa    select
+        puld
+        ldx     #$2710       ;10,000 initial divisor value
+        bra     hex_con     
+
         
+parse_hex3:
+        pshd
+        ldaa    #$00
+        staa    select   
+        puld
+        ldx     #$64          ;100 initial divisor value
+        bra     hex_con     
+
+
+
 hex_con 
                
         pshx 
@@ -413,16 +433,23 @@ num8    subd  #$01
 		    jsr   hex_con
 		    
 num9    subd  #$01
-        JSR   o_prt
-        
+        bne   noDig
+          
         LDAA  #'9'
 	
 		    JSR	  DATWRT4    	
 		    JSR   DELAY
 		    XGDY           ;put remainder back in d from y
 		    jsr   hex_con
+		    
+noDig   
+        ldaa  select
+        cmpa  #$FF
+        beq   br5
+        JSR   o_prt3
+br5     JSR   o_prt5
 
-;-----------------------------------
+;------------------------h-----------
 ;Ch0 Interrupt code
 ;-----------------------------------
 rti_intCh0: 
